@@ -31,6 +31,7 @@ function AiChatMessageList({ messages }: { messages: AiChatMessage[] }) {
             <div className="ai-chat-message-role">
               {message.role === 'assistant' ? 'AI' : 'You'}
             </div>
+            {message.editorContext && <ContextBadges ctx={message.editorContext} />}
             <div className="ai-chat-message-content">
               {message.content}
               {message.isStreaming && (
@@ -41,6 +42,34 @@ function AiChatMessageList({ messages }: { messages: AiChatMessage[] }) {
         </div>
       ))}
       <div ref={messagesEndRef} />
+    </div>
+  )
+}
+
+function ContextBadges({
+  ctx,
+}: {
+  ctx: NonNullable<AiChatMessage['editorContext']>
+}) {
+  const hasBadge = ctx.fileName || ctx.selectedText
+  if (!hasBadge) return null
+
+  return (
+    <div className="ai-chat-context-badges">
+      {ctx.fileName && (
+        <span className="ai-chat-badge">
+          <MaterialIcon type="description" />
+          {ctx.fileName}
+        </span>
+      )}
+      {ctx.selectedText && (
+        <span className="ai-chat-badge ai-chat-badge-selection">
+          <MaterialIcon type="highlight_alt" />
+          {ctx.selectedText.length > 40
+            ? ctx.selectedText.slice(0, 40) + '…'
+            : ctx.selectedText}
+        </span>
+      )}
     </div>
   )
 }

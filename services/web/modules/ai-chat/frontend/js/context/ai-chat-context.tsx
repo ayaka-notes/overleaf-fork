@@ -6,6 +6,10 @@ import {
   useReducer,
   useRef,
 } from 'react'
+import {
+  useEditorContent,
+  type EditorContentInfo,
+} from '../hooks/use-editor-content'
 
 export type AiChatMessage = {
   id: string
@@ -13,6 +17,12 @@ export type AiChatMessage = {
   content: string
   timestamp: Date
   isStreaming?: boolean
+  /** Editor context attached when the message was sent */
+  editorContext?: {
+    fileName: string | null
+    selectedText: string | null
+    hasDocumentContent: boolean
+  }
 }
 
 type AiChatState = {
@@ -95,6 +105,56 @@ type AiChatContextValue = {
 
 const AiChatContext = createContext<AiChatContextValue | undefined>(undefined)
 
+/**
+ * Build the request body, injecting document context for the backend.
+ * The full document is sent as a system-level context so the AI can
+ * reference any part of it; selected text (if any) is highlighted
+ * explicitly so the AI knows what the user is looking at.
+ */
+function buildRequestBody(
+  history: AiChatMessage[],
+  userContent: string,
+  editorCtx: EditorContentInfo
+) {
+  const contextParts: string[] = []
+
+  if (editorCtx.fileName) {
+    contextParts.push(`Current file: ${editorCtx.fileName}`)
+  }
+
+  if (editorCtx.selectedText) {
+    contextParts.push(
+      `User's selected text:\n\`\`\`\n${editorCtx.selectedText}\n\`\`\``
+    )
+  }
+
+  if (editorCtx.documentContent) {
+    // Truncate very large documents to avoid blowing up the request
+    const maxLen = 60_000
+    const doc =
+      editorCtx.documentContent.length > maxLen
+        ? editorCtx.documentContent.slice(0, maxLen) + '\n... (truncated)'
+        : editorCtx.documentContent
+    contextParts.push(
+      `Full document content:\n\`\`\`latex\n${doc}\n\`\`\``
+    )
+  }
+
+  const systemContext =
+    contextParts.length > 0 ? contextParts.join('\n\n') : null
+
+  return {
+    messages: [
+      ...history.map(m => ({
+        role: m.role,
+        content: m.content,
+      })),
+      { role: 'user', content: userContent },
+    ],
+    context: systemContext,
+  }
+}
+
 export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, {
     messages: [],
@@ -102,6 +162,7 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
     error: null,
   })
   const abortControllerRef = useRef<AbortController | null>(null)
+  const { getEditorContext } = useEditorContent()
 
   const stopStreaming = useCallback(() => {
     if (abortControllerRef.current) {
@@ -114,11 +175,19 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
     async (content: string) => {
       if (!content.trim()) return
 
+      // Capture editor state at send time
+      const editorCtx = getEditorContext()
+
       const userMessage: AiChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
         content: content.trim(),
         timestamp: new Date(),
+        editorContext: {
+          fileName: editorCtx.fileName,
+          selectedText: editorCtx.selectedText,
+          hasDocumentContent: !!editorCtx.documentContent,
+        },
       }
       dispatch({ type: 'SEND_MESSAGE', message: userMessage })
 
@@ -133,6 +202,8 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
           /\/project\/([a-f0-9]+)/
         )?.[1]
 
+        const body = buildRequestBody(state.messages, content.trim(), editorCtx)
+
         const response = await fetch(`/api/project/${projectId}/ai-chat`, {
           method: 'POST',
           headers: {
@@ -144,15 +215,7 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
                 ) as HTMLMetaElement
               )?.content ?? '',
           },
-          body: JSON.stringify({
-            messages: [
-              ...state.messages.map(m => ({
-                role: m.role,
-                content: m.content,
-              })),
-              { role: 'user', content: content.trim() },
-            ],
-          }),
+          body: JSON.stringify(body),
           signal: abortController.signal,
         })
 
@@ -215,7 +278,7 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
         abortControllerRef.current = null
       }
     },
-    [state.messages]
+    [state.messages, getEditorContext]
   )
 
   const clearMessages = useCallback(() => {

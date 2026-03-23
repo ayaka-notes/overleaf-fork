@@ -220,3 +220,73 @@
     background-color: var(--bg-danger-03);
   }
 }
+
+// Context badges on sent messages
+.ai-chat-context-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-01);
+  margin-bottom: var(--spacing-02);
+}
+
+.ai-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px var(--spacing-02);
+  border-radius: var(--border-radius-base);
+  background-color: var(--bg-light-secondary);
+  color: var(--content-secondary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-01);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .material-symbols {
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+}
+
+.ai-chat-badge-selection {
+  background-color: var(--bg-accent-01);
+  color: var(--white);
+  opacity: 0.85;
+}
+
+// Context bar above input
+.ai-chat-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-01);
+  padding: 0 var(--spacing-01) var(--spacing-02);
+}
+
+.ai-chat-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px var(--spacing-02);
+  border-radius: var(--border-radius-base);
+  background-color: var(--bg-light-secondary);
+  color: var(--content-secondary-themed);
+  font-size: var(--font-size-01);
+  line-height: var(--line-height-01);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .material-symbols {
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+}
+
+.ai-chat-context-chip-selection {
+  background-color: var(--bg-accent-01);
+  color: var(--white);
+  opacity: 0.85;
+}
