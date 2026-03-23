@@ -1058,7 +1058,12 @@ module.exports = {
     referenceSearchSetting: [],
     errorLogsComponents: [],
     referenceIndices: [],
-    railEntries: [],
+    railEntries: [
+      Path.resolve(
+        __dirname,
+        '../modules/ai-chat/frontend/js/components/ai-chat-rail-entry.tsx'
+      ),
+    ],
     railPopovers: [],
   },
 
