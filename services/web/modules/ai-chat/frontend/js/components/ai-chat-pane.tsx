@@ -2,14 +2,16 @@ import RailPanelHeader from '@/features/ide-react/components/rail/rail-panel-hea
 import MaterialIcon from '@/shared/components/material-icon'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import OLTooltip from '@/shared/components/ol/ol-tooltip'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { AiChatProvider, useAiChatContext } from '../context/ai-chat-context'
 import AiChatInput from './ai-chat-input'
 import AiChatMessageList from './ai-chat-message-list'
+import AiChatEmptyState from './ai-chat-empty-state'
 
 function AiChatPaneContent() {
   const { messages, status, error, sendMessage, clearMessages, stopStreaming } =
     useAiChatContext()
+  const [isTyping, setIsTyping] = useState(false)
 
   const handleClear = useCallback(() => {
     clearMessages()
@@ -21,7 +23,7 @@ function AiChatPaneContent() {
   return (
     <div className="ai-chat-panel">
       <RailPanelHeader
-        title="AI Chat"
+        title="AI Assistant"
         actions={
           messages.length > 0 ? (
             <OLTooltip
@@ -40,9 +42,9 @@ function AiChatPaneContent() {
           ) : undefined
         }
       />
-      <div className="ai-chat-body">
-        {isEmpty && !error ? (
-          <AiChatEmptyState />
+      <div className="ai-chat-body conversation" role="log" aria-live="polite">
+        {isEmpty && !isTyping && !error ? (
+          <AiChatEmptyState onSelectPrompt={sendMessage} />
         ) : (
           <AiChatMessageList messages={messages} />
         )}
@@ -57,24 +59,8 @@ function AiChatPaneContent() {
         onSend={sendMessage}
         onStop={stopStreaming}
         isStreaming={isStreaming}
+        onTypingChange={setIsTyping}
       />
-    </div>
-  )
-}
-
-function AiChatEmptyState() {
-  return (
-    <div className="ai-chat-empty-state">
-      <div>
-        <span className="ai-chat-empty-icon">
-          <MaterialIcon type="smart_toy" />
-        </span>
-      </div>
-      <div className="ai-chat-empty-title">AI Assistant</div>
-      <div className="ai-chat-empty-body">
-        Ask questions about your LaTeX document, get help with formatting,
-        debugging compilation errors, or writing content.
-      </div>
     </div>
   )
 }

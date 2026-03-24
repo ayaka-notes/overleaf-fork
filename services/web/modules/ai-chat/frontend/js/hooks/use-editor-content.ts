@@ -1,40 +1,43 @@
 import { useCallback, useMemo } from 'react'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
 import { useEditorOpenDocContext } from '@/features/ide-react/context/editor-open-doc-context'
+import { useEditorViewContext } from '@/features/ide-react/context/editor-view-context'
 
 export type EditorContentInfo = {
   fileName: string | null
   documentContent: string | null
   selectedText: string | null
+  selectionRange: {
+    startLine: number
+    endLine: number
+  } | null
 }
 
 /**
  * Hook to gather current editor context for AI chat.
- * Uses getCurrentDocValue() for full doc content and
- * window.getSelection() as a fallback for selected text
- * (since CodeMirrorViewContext is not available in the rail).
+ * Uses getCurrentDocValue() for full doc content and the active CodeMirror
+ * EditorView for source-accurate selection line ranges.
  */
 export function useEditorContent(): {
   getEditorContext: () => EditorContentInfo
 } {
   const { getCurrentDocValue } = useEditorManagerContext()
   const { openDocName } = useEditorOpenDocContext()
+  const { view } = useEditorViewContext()
 
   const getEditorContext = useCallback((): EditorContentInfo => {
     const documentContent = getCurrentDocValue()
 
-    // Try to get selected text from the CodeMirror editor DOM
     let selectedText: string | null = null
-    const cmEditor = document.querySelector('.cm-editor') as HTMLElement | null
-    if (cmEditor) {
-      // CodeMirror stores selection in its state, but we can read it via
-      // the DOM selection if the editor is focused
-      const sel = window.getSelection()
-      if (sel && sel.toString().trim()) {
-        // Check that the selection is within the editor
-        const range = sel.getRangeAt(0)
-        if (cmEditor.contains(range.commonAncestorContainer)) {
-          selectedText = sel.toString().trim()
+    let selectionRange: EditorContentInfo['selectionRange'] = null
+
+    if (view) {
+      const { from, to } = view.state.selection.main
+      if (from !== to) {
+        selectedText = view.state.sliceDoc(from, to).trim() || null
+        selectionRange = {
+          startLine: view.state.doc.lineAt(from).number,
+          endLine: view.state.doc.lineAt(Math.max(from, to - 1)).number,
         }
       }
     }
@@ -43,8 +46,9 @@ export function useEditorContent(): {
       fileName: openDocName,
       documentContent,
       selectedText,
+      selectionRange,
     }
-  }, [getCurrentDocValue, openDocName])
+  }, [getCurrentDocValue, openDocName, view])
 
   return useMemo(() => ({ getEditorContext }), [getEditorContext])
 }

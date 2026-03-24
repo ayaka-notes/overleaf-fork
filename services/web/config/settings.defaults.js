@@ -235,6 +235,18 @@ module.exports = {
     chat: {
       internal_url: `http://${process.env.CHAT_HOST || '127.0.0.1'}:3010`,
     },
+    aiChat: {
+      enabled: process.env.AI_CHAT_ENABLED === 'true',
+      url:
+        process.env.AI_CHAT_URL ||
+        'https://api.openai.com/v1/chat/completions',
+      apiKey: process.env.AI_CHAT_API_KEY,
+      model: process.env.AI_CHAT_MODEL || 'gpt-4.1-mini',
+      systemPrompt:
+        process.env.AI_CHAT_SYSTEM_PROMPT ||
+        'You are an AI assistant embedded in Overleaf. Help with LaTeX authoring, debugging, formatting, and editing requests. Use the provided project context when relevant.',
+      timeout: parseInt(process.env.AI_CHAT_TIMEOUT || '120000', 10),
+    },
     filestore: {
       url: `http://${process.env.FILESTORE_HOST || '127.0.0.1'}:3009`,
     },
@@ -1068,6 +1080,7 @@ module.exports = {
   },
 
   moduleImportSequence: [
+    'ai-chat',
     'history-v1',
     'launchpad',
     'server-ce-scripts',

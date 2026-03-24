@@ -21,6 +21,10 @@ export type AiChatMessage = {
   editorContext?: {
     fileName: string | null
     selectedText: string | null
+    selectionRange: {
+      startLine: number
+      endLine: number
+    } | null
     hasDocumentContent: boolean
   }
 }
@@ -108,8 +112,8 @@ const AiChatContext = createContext<AiChatContextValue | undefined>(undefined)
 /**
  * Build the request body, injecting document context for the backend.
  * The full document is sent as a system-level context so the AI can
- * reference any part of it; selected text (if any) is highlighted
- * explicitly so the AI knows what the user is looking at.
+ * reference any part of it; the current selection range and selected source
+ * text are included so the AI knows where in the file the user is focused.
  */
 function buildRequestBody(
   history: AiChatMessage[],
@@ -120,12 +124,6 @@ function buildRequestBody(
 
   if (editorCtx.fileName) {
     contextParts.push(`Current file: ${editorCtx.fileName}`)
-  }
-
-  if (editorCtx.selectedText) {
-    contextParts.push(
-      `User's selected text:\n\`\`\`\n${editorCtx.selectedText}\n\`\`\``
-    )
   }
 
   if (editorCtx.documentContent) {
@@ -142,7 +140,6 @@ function buildRequestBody(
 
   const systemContext =
     contextParts.length > 0 ? contextParts.join('\n\n') : null
-
   return {
     messages: [
       ...history.map(m => ({
@@ -152,6 +149,8 @@ function buildRequestBody(
       { role: 'user', content: userContent },
     ],
     context: systemContext,
+    selectedText: editorCtx.selectedText,
+    selectionRange: editorCtx.selectionRange,
   }
 }
 
@@ -186,6 +185,7 @@ export const AiChatProvider: FC<React.PropsWithChildren> = ({ children }) => {
         editorContext: {
           fileName: editorCtx.fileName,
           selectedText: editorCtx.selectedText,
+          selectionRange: editorCtx.selectionRange,
           hasDocumentContent: !!editorCtx.documentContent,
         },
       }

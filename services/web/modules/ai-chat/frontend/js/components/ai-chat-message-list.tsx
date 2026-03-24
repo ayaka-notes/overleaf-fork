@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import MaterialIcon from '@/shared/components/material-icon'
 import type { AiChatMessage } from '../context/ai-chat-context'
+import AiChatMarkdown from './ai-chat-markdown'
 
 function AiChatMessageList({ messages }: { messages: AiChatMessage[] }) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -10,32 +11,40 @@ function AiChatMessageList({ messages }: { messages: AiChatMessage[] }) {
   }, [messages])
 
   return (
-    <div className="ai-chat-messages">
+    <div className="conversation-content ai-chat-messages">
       {messages.map(message => (
         <div
           key={message.id}
-          className={`ai-chat-message ai-chat-message-${message.role}`}
+          className={`workbench-message ai-chat-message ai-chat-message-${message.role} ${
+            message.role === 'assistant' ? 'from-assistant' : 'from-user'
+          }`}
         >
-          <div className="ai-chat-message-avatar">
-            {message.role === 'assistant' ? (
-              <span className="ai-chat-avatar-icon">
-                <MaterialIcon type="smart_toy" />
-              </span>
-            ) : (
-              <span className="ai-chat-avatar-icon ai-chat-avatar-user">
-                <MaterialIcon type="person" />
-              </span>
-            )}
-          </div>
-          <div className="ai-chat-message-body">
-            <div className="ai-chat-message-role">
-              {message.role === 'assistant' ? 'AI' : 'You'}
+          <div className="workbench-message-content ai-chat-message-card">
+            <div className="ai-chat-message-avatar">
+              {message.role === 'assistant' ? (
+                <span className="ai-chat-avatar-icon">
+                  <MaterialIcon type="smart_toy" />
+                </span>
+              ) : (
+                <span className="ai-chat-avatar-icon ai-chat-avatar-user">
+                  <MaterialIcon type="person" />
+                </span>
+              )}
             </div>
-            {message.editorContext && <ContextBadges ctx={message.editorContext} />}
-            <div className="ai-chat-message-content">
-              {message.content}
+            <div className="ai-chat-message-body">
+              <div className="ai-chat-message-role">
+                {message.role === 'assistant' ? 'AI Assistant' : 'You'}
+              </div>
+              {message.editorContext && (
+                <ContextBadges ctx={message.editorContext} />
+              )}
+              <div className="ai-chat-message-content">
+                <AiChatMarkdown content={message.content} />
+              </div>
               {message.isStreaming && (
-                <span className="ai-chat-cursor" aria-hidden="true" />
+                <div className="ai-chat-message-streaming">
+                  <span className="ai-chat-cursor" aria-hidden="true" />
+                </div>
               )}
             </div>
           </div>
@@ -51,7 +60,7 @@ function ContextBadges({
 }: {
   ctx: NonNullable<AiChatMessage['editorContext']>
 }) {
-  const hasBadge = ctx.fileName || ctx.selectedText
+  const hasBadge = ctx.fileName || ctx.selectionRange
   if (!hasBadge) return null
 
   return (
@@ -62,12 +71,10 @@ function ContextBadges({
           {ctx.fileName}
         </span>
       )}
-      {ctx.selectedText && (
+      {ctx.selectionRange && (
         <span className="ai-chat-badge ai-chat-badge-selection">
-          <MaterialIcon type="highlight_alt" />
-          {ctx.selectedText.length > 40
-            ? ctx.selectedText.slice(0, 40) + '…'
-            : ctx.selectedText}
+          <MaterialIcon type="rate_review" />
+          {`Lines ${ctx.selectionRange.startLine}-${ctx.selectionRange.endLine}`}
         </span>
       )}
     </div>
