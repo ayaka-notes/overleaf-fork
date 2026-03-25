@@ -13,5 +13,12 @@ export default {
       AuthorizationMiddleware.ensureUserCanReadProject,
       AiChatController.streamChat
     )
+
+    webRouter.post(
+      '/api/project/:Project_id/ai-chat/apply-edit',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanWriteProjectContent,
+      AiChatController.applyEdit
+    )
   },
 }

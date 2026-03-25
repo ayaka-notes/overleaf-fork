@@ -4,6 +4,7 @@ import { useEditorOpenDocContext } from '@/features/ide-react/context/editor-ope
 import { useEditorViewContext } from '@/features/ide-react/context/editor-view-context'
 
 export type EditorContentInfo = {
+  currentDocumentId: string | null
   fileName: string | null
   documentContent: string | null
   selectedText: string | null
@@ -22,7 +23,7 @@ export function useEditorContent(): {
   getEditorContext: () => EditorContentInfo
 } {
   const { getCurrentDocValue } = useEditorManagerContext()
-  const { openDocName } = useEditorOpenDocContext()
+  const { currentDocumentId, openDocName } = useEditorOpenDocContext()
   const { view } = useEditorViewContext()
 
   const getEditorContext = useCallback((): EditorContentInfo => {
@@ -43,12 +44,13 @@ export function useEditorContent(): {
     }
 
     return {
+      currentDocumentId,
       fileName: openDocName,
       documentContent,
       selectedText,
       selectionRange,
     }
-  }, [getCurrentDocValue, openDocName, view])
+  }, [currentDocumentId, getCurrentDocValue, openDocName, view])
 
   return useMemo(() => ({ getEditorContext }), [getEditorContext])
 }

@@ -246,6 +246,12 @@ module.exports = {
         process.env.AI_CHAT_SYSTEM_PROMPT ||
         'You are an AI assistant embedded in Overleaf. Help with LaTeX authoring, debugging, formatting, and editing requests. Use the provided project context when relevant.',
       timeout: parseInt(process.env.AI_CHAT_TIMEOUT || '120000', 10),
+      webRun: {
+        enabled: process.env.AI_CHAT_WEB_RUN_ENABLED === 'true',
+        url: process.env.AI_CHAT_WEB_RUN_URL || '',
+        apiKey: process.env.AI_CHAT_WEB_RUN_API_KEY,
+        timeout: parseInt(process.env.AI_CHAT_WEB_RUN_TIMEOUT || '30000', 10),
+      },
     },
     filestore: {
       url: `http://${process.env.FILESTORE_HOST || '127.0.0.1'}:3009`,
