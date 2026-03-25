@@ -288,23 +288,27 @@ function EditProposalCard({
         {proposal.rationale && (
           <p className="ai-chat-edit-proposal-rationale">{proposal.rationale}</p>
         )}
-        <div className="workbench-code-diff ai-chat-code-diff">
-          <div className="workbench-code-diff-line-number ai-chat-code-diff-line-number">
-            <button type="button" className="btn btn-link btn-sm" disabled>
-              {proposal.fromLine}
-            </button>
-          </div>
-          <DiffCode
-            existingContent={proposal.existingContent}
-            newContent={proposal.newContent}
-          />
-        </div>
-        {!collapsed && proposal.path && (
-          <div className="ai-chat-edit-proposal-lines">
-            {proposal.path}
-            {' · '}
-            {`Lines ${proposal.fromLine}-${proposal.toLine}`}
-          </div>
+        {!collapsed && (
+          <>
+            <div className="workbench-code-diff ai-chat-code-diff">
+              <div className="workbench-code-diff-line-number ai-chat-code-diff-line-number">
+                <button type="button" className="btn btn-link btn-sm" disabled>
+                  {proposal.fromLine}
+                </button>
+              </div>
+              <DiffCode
+                existingContent={proposal.existingContent}
+                newContent={proposal.newContent}
+              />
+            </div>
+            {proposal.path && (
+              <div className="ai-chat-edit-proposal-lines">
+                {proposal.path}
+                {' · '}
+                {`Lines ${proposal.fromLine}-${proposal.toLine}`}
+              </div>
+            )}
+          </>
         )}
         <div className="d-flex justify-content-between align-items-center gap-2 workbench-code-diff-actions ai-chat-edit-actions">
           <div className="d-flex align-items-center gap-2">
