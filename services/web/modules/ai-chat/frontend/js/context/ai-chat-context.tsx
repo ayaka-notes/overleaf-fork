@@ -508,6 +508,7 @@ function handleAssistantEvent(
   ) {
     const content = typeof parsed.content === 'string' ? parsed.content : null
     if (content) {
+      dispatch({ type: 'FINISH_REASONING', id: assistantId })
       dispatch({ type: 'APPEND_CHUNK', id: assistantId, chunk: content })
     }
     return

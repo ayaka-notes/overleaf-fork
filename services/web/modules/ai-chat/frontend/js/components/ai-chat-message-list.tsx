@@ -180,39 +180,39 @@ function ReasoningPanel({
       <button
         type="button"
         className="reasoning-toggle ai-chat-reasoning-toggle"
-        onClick={() => setExpanded(value => !value)}
+        onClick={() => {
+          if (hasContent) {
+            setExpanded(value => !value)
+          }
+        }}
       >
         <div className="reasoning-label ai-chat-reasoning-label">
           <span className="ai-chat-reasoning-status-icon">
-            {isRunning ? (
-              <span className="ai-chat-spinner" aria-hidden="true" />
-            ) : (
-              <MaterialIcon type="check_circle" />
-            )}
+            <MaterialIcon type="lightbulb_2" />
           </span>
           <span className="mx-1 reasoning-label-text">
             {`Thought for ${elapsedSeconds}s`}
           </span>
-          <span
-            className={`ai-chat-reasoning-chevron ${expanded ? 'is-expanded' : ''}`}
-          >
-            <MaterialIcon type="expand_more" />
-          </span>
-        </div>
-      </button>
-      <div
-        className={`reasoning-content ai-chat-reasoning-content ${
-          expanded ? '' : 'reasoning-collapsed'
-        }`}
-      >
-        <div className="space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0">
-          {hasContent ? (
-            <AiChatMarkdown content={reasoning.content} />
-          ) : (
-            <p className="ai-chat-reasoning-placeholder">Thinking...</p>
+          {hasContent && (
+            <span
+              className={`ai-chat-reasoning-chevron ${expanded ? 'is-expanded' : ''}`}
+            >
+              <MaterialIcon type="expand_more" />
+            </span>
           )}
         </div>
-      </div>
+      </button>
+      {hasContent && (
+        <div
+          className={`reasoning-content ai-chat-reasoning-content ${
+            expanded ? '' : 'reasoning-collapsed'
+          }`}
+        >
+          <div className="space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0">
+            <AiChatMarkdown content={reasoning.content} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
