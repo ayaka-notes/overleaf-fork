@@ -35,7 +35,7 @@ export function useEditorContent(): {
     if (view) {
       const { from, to } = view.state.selection.main
       if (from !== to) {
-        selectedText = view.state.sliceDoc(from, to).trim() || null
+        selectedText = view.state.sliceDoc(from, to) || null
         selectionRange = {
           startLine: view.state.doc.lineAt(from).number,
           endLine: view.state.doc.lineAt(Math.max(from, to - 1)).number,

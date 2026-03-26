@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { diffWordsWithSpace } from 'diff'
 import MaterialIcon from '@/shared/components/material-icon'
 import {
   useAiChatContext,
+  type AiChatAttachment,
   type AiChatMessage,
   type AiChatToolCall,
 } from '../context/ai-chat-context'
@@ -57,6 +58,9 @@ function AiChatMessageCard({ message }: { message: AiChatMessage }) {
           {message.toolCalls && message.toolCalls.length > 0 && (
             <ToolCallList toolCalls={message.toolCalls} />
           )}
+          {message.attachments && message.attachments.length > 0 && (
+            <MessageAttachments attachments={message.attachments} />
+          )}
           <div className="ai-chat-message-content">
             <AiChatMarkdown content={message.content} />
           </div>
@@ -74,6 +78,79 @@ function AiChatMessageCard({ message }: { message: AiChatMessage }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function MessageAttachments({
+  attachments,
+}: {
+  attachments: AiChatAttachment[]
+}) {
+  const [hoveredAttachment, setHoveredAttachment] =
+    useState<AiChatAttachment | null>(null)
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
+
+  const previewStyle = useMemo(() => {
+    if (!anchorRect) return {}
+    const PREVIEW_W = Math.min(0.4 * window.innerWidth, 400)
+    const GAP = 8
+    // center horizontally on the thumbnail, clamp to viewport
+    let left = anchorRect.left + anchorRect.width / 2 - PREVIEW_W / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - PREVIEW_W - 8))
+    // place above the thumbnail; if not enough room, place below
+    const top =
+      anchorRect.top - GAP > 300
+        ? undefined
+        : anchorRect.bottom + GAP
+    const bottom =
+      anchorRect.top - GAP > 300
+        ? window.innerHeight - anchorRect.top + GAP
+        : undefined
+    return { left, top, bottom, width: PREVIEW_W }
+  }, [anchorRect])
+
+  return (
+    <>
+      <div className="ai-chat-message-attachments">
+        {attachments.map(attachment => (
+          <div
+            key={attachment.id}
+            className="ai-chat-message-attachment"
+            onMouseEnter={event => {
+              setHoveredAttachment(attachment)
+              setAnchorRect(
+                (event.currentTarget as HTMLElement).getBoundingClientRect()
+              )
+            }}
+            onMouseLeave={() => {
+              setHoveredAttachment(current =>
+                current?.id === attachment.id ? null : current
+              )
+              setAnchorRect(null)
+            }}
+          >
+            <img
+              src={attachment.dataUrl}
+              alt={attachment.name}
+              className="ai-chat-message-attachment-image"
+            />
+          </div>
+        ))}
+      </div>
+      {hoveredAttachment && anchorRect && (
+        <div
+          className="ai-chat-image-hover-preview"
+          style={previewStyle}
+          aria-hidden="true"
+        >
+          <img
+            src={hoveredAttachment.dataUrl}
+            alt={hoveredAttachment.name}
+            className="ai-chat-image-hover-preview-image"
+          />
+        </div>
+      )}
+    </>
   )
 }
 
@@ -237,32 +314,23 @@ function DiffCode({
 
   return (
     <code className="workbench-code-diff-code ai-chat-code-diff-code">
-      <del>
-        {parts.map((part, index) => {
-          if (part.added) return null
+      {parts.map((part, index) => {
+        if (part.removed) {
           return (
-            <span
-              key={`old-${index}`}
-              className={part.removed ? 'ai-chat-diff-token-removed' : undefined}
-            >
+            <span key={index} className="ai-chat-diff-token-removed">
               {part.value}
             </span>
           )
-        })}
-      </del>
-      <ins>
-        {parts.map((part, index) => {
-          if (part.removed) return null
+        }
+        if (part.added) {
           return (
-            <span
-              key={`new-${index}`}
-              className={part.added ? 'ai-chat-diff-token-added' : undefined}
-            >
+            <span key={index} className="ai-chat-diff-token-added">
               {part.value}
             </span>
           )
-        })}
-      </ins>
+        }
+        return <span key={index}>{part.value}</span>
+      })}
     </code>
   )
 }
@@ -274,13 +342,8 @@ function EditProposalCard({
   messageId: string
   proposal: NonNullable<AiChatMessage['editProposal']>
 }) {
-  const { applyEditProposal } = useAiChatContext()
-  const [collapsed, setCollapsed] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
-
-  if (dismissed) {
-    return null
-  }
+  const { applyEditProposal, rejectEditProposal } = useAiChatContext()
+  const [showDiff, setShowDiff] = useState(true)
 
   return (
     <div className="tool-content tool-use collapse show ai-chat-edit-tool-content">
@@ -288,27 +351,29 @@ function EditProposalCard({
         {proposal.rationale && (
           <p className="ai-chat-edit-proposal-rationale">{proposal.rationale}</p>
         )}
-        {!collapsed && (
-          <>
-            <div className="workbench-code-diff ai-chat-code-diff">
-              <div className="workbench-code-diff-line-number ai-chat-code-diff-line-number">
-                <button type="button" className="btn btn-link btn-sm" disabled>
-                  {proposal.fromLine}
-                </button>
-              </div>
-              <DiffCode
-                existingContent={proposal.existingContent}
-                newContent={proposal.newContent}
-              />
-            </div>
-            {proposal.path && (
-              <div className="ai-chat-edit-proposal-lines">
-                {proposal.path}
-                {' · '}
-                {`Lines ${proposal.fromLine}-${proposal.toLine}`}
-              </div>
-            )}
-          </>
+        <div className="workbench-code-diff ai-chat-code-diff">
+          <div className="workbench-code-diff-line-number ai-chat-code-diff-line-number">
+            <button type="button" className="btn btn-link btn-sm" disabled>
+              {proposal.fromLine}
+            </button>
+          </div>
+          {showDiff ? (
+            <DiffCode
+              existingContent={proposal.existingContent}
+              newContent={proposal.newContent}
+            />
+          ) : (
+            <code className="workbench-code-diff-code ai-chat-code-diff-code">
+              {proposal.newContent}
+            </code>
+          )}
+        </div>
+        {proposal.path && (
+          <div className="ai-chat-edit-proposal-lines">
+            {proposal.path}
+            {' · '}
+            {`Lines ${proposal.fromLine}-${proposal.toLine}`}
+          </div>
         )}
         <div className="d-flex justify-content-between align-items-center gap-2 workbench-code-diff-actions ai-chat-edit-actions">
           <div className="d-flex align-items-center gap-2">
@@ -316,10 +381,10 @@ function EditProposalCard({
               type="button"
               data-ol-loading="false"
               className="d-inline-grid btn btn-ghost btn-sm"
-              onClick={() => setCollapsed(value => !value)}
+              onClick={() => setShowDiff(value => !value)}
             >
               <span className="button-content" aria-hidden="false">
-                {collapsed ? 'Show changes' : 'Hide changes'}
+                {showDiff ? 'Hide changes' : 'Show changes'}
               </span>
             </button>
           </div>
@@ -329,7 +394,7 @@ function EditProposalCard({
               data-ol-loading="false"
               className="d-inline-grid btn btn-secondary btn-sm"
               disabled={proposal.status === 'applying' || proposal.status === 'applied'}
-              onClick={() => setDismissed(true)}
+              onClick={() => rejectEditProposal(messageId)}
             >
               <span className="button-content" aria-hidden="false">不要</span>
             </button>

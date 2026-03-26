@@ -9,8 +9,10 @@ async function streamChat(req, res) {
     context,
     currentDocumentId,
     currentFileName,
+    currentDocumentContent,
     selectedText,
     selectionRange,
+    rejectedEditProposal,
   } = req.body ?? {}
   const userId = SessionManager.getLoggedInUserId(req.session)
 
@@ -29,8 +31,10 @@ async function streamChat(req, res) {
     context,
     currentDocumentId,
     currentFileName,
+    currentDocumentContent,
     selectedText,
     selectionRange,
+    rejectedEditProposal,
     signal: abortController.signal,
     res,
   })

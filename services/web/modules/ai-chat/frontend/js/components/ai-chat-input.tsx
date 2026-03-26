@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MaterialIcon from '@/shared/components/material-icon'
 import { useEditorContent } from '../hooks/use-editor-content'
 import { useEditorSelectionContext } from '@/shared/context/editor-selection-context'
+import { type AiChatAttachment } from '../context/ai-chat-context'
 
 type AiChatInputProps = {
-  onSend: (message: string) => void
+  onSend: (message: string, attachments?: AiChatAttachment[]) => void
   onStop: () => void
   isStreaming: boolean
   onTypingChange?: (isTyping: boolean) => void
 }
+
+const ACCEPTED_IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]
 
 function AiChatInput({
   onSend,
@@ -17,11 +25,33 @@ function AiChatInput({
   onTypingChange,
 }: AiChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { getEditorContext } = useEditorContent()
   const { editorSelection } = useEditorSelectionContext()
   const [value, setValue] = useState('')
+  const [attachments, setAttachments] = useState<AiChatAttachment[]>([])
   const [selectionPreview, setSelectionPreview] = useState<string | null>(null)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
+  const [previewAttachment, setPreviewAttachment] =
+    useState<AiChatAttachment | null>(null)
+  const [previewAnchor, setPreviewAnchor] = useState<DOMRect | null>(null)
+
+  const previewStyle = useMemo(() => {
+    if (!previewAnchor) return {}
+    const PREVIEW_W = Math.min(0.4 * window.innerWidth, 400)
+    const GAP = 8
+    let left = previewAnchor.left + previewAnchor.width / 2 - PREVIEW_W / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - PREVIEW_W - 8))
+    const top =
+      previewAnchor.top - GAP > 300
+        ? undefined
+        : previewAnchor.bottom + GAP
+    const bottom =
+      previewAnchor.top - GAP > 300
+        ? window.innerHeight - previewAnchor.top + GAP
+        : undefined
+    return { left, top, bottom, width: PREVIEW_W }
+  }, [previewAnchor])
 
   // Refresh context indicators when the input is focused
   const refreshContext = useCallback(() => {
@@ -69,13 +99,17 @@ function AiChatInput({
     const textarea = textareaRef.current
     if (!textarea) return
     const trimmed = value.trim()
-    if (!trimmed) return
-    onSend(trimmed)
+    if (!trimmed && attachments.length === 0) return
+    onSend(trimmed, attachments)
     setValue('')
+    setAttachments([])
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
     onTypingChange?.(false)
     textarea.style.height = '120px'
     setSelectionPreview(null)
-  }, [onSend, onTypingChange, value])
+  }, [attachments, onSend, onTypingChange, value])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -94,19 +128,76 @@ function AiChatInput({
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = event.target.value
       setValue(newValue)
-      onTypingChange?.(newValue.trim().length > 0)
+      onTypingChange?.(newValue.trim().length > 0 || attachments.length > 0)
       event.target.style.height = 'auto'
       event.target.style.height =
         Math.min(Math.max(event.target.scrollHeight, 120), 220) + 'px'
     },
-    [onTypingChange]
+    [attachments.length, onTypingChange]
   )
 
   const handleFocus = useCallback(() => {
     refreshContext()
   }, [refreshContext])
 
-  const canSubmit = value.trim().length > 0 && !isStreaming
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(current => {
+      const next = current.filter(item => item.id !== id)
+      onTypingChange?.(value.trim().length > 0 || next.length > 0)
+      return next
+    })
+  }, [onTypingChange, value])
+
+  const handleChooseFiles = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const handleFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? [])
+      if (files.length === 0) return
+
+      const nextAttachments = await Promise.all(
+        files
+          .filter(file => ACCEPTED_IMAGE_TYPES.includes(file.type))
+          .map(
+            file =>
+              new Promise<AiChatAttachment>((resolve, reject) => {
+                const reader = new FileReader()
+                reader.onload = () => {
+                  if (typeof reader.result !== 'string') {
+                    reject(new Error('Failed to read image file'))
+                    return
+                  }
+                  resolve({
+                    id: `${file.name}-${file.lastModified}-${file.size}`,
+                    name: file.name,
+                    mimeType: file.type,
+                    dataUrl: reader.result,
+                    size: file.size,
+                  })
+                }
+                reader.onerror = () => reject(new Error('Failed to read image file'))
+                reader.readAsDataURL(file)
+              })
+          )
+      )
+
+      setAttachments(current => {
+        const existing = new Set(current.map(item => item.id))
+        return [
+          ...current,
+          ...nextAttachments.filter(item => !existing.has(item.id)),
+        ]
+      })
+      onTypingChange?.(value.trim().length > 0 || nextAttachments.length > 0)
+      event.target.value = ''
+    },
+    [onTypingChange, value]
+  )
+
+  const hasPendingInput = value.trim().length > 0 || attachments.length > 0
+  const canSubmit = hasPendingInput && !isStreaming
 
   return (
     <div className="ai-chat-input-area">
@@ -134,6 +225,64 @@ function AiChatInput({
         }}
       >
         <div className="d-flex w-100 flex-column gap-2 input-group">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_IMAGE_TYPES.join(',')}
+            multiple
+            className="ai-chat-hidden-file-input"
+            onChange={handleFileChange}
+            tabIndex={-1}
+          />
+          {attachments.length > 0 && (
+            <div className="ai-chat-attachment-strip">
+              {attachments.map(attachment => (
+                <div
+                  key={attachment.id}
+                  className="ai-chat-attachment-preview"
+                  onMouseEnter={event => {
+                    setPreviewAttachment(attachment)
+                    setPreviewAnchor(
+                      (
+                        event.currentTarget as HTMLElement
+                      ).getBoundingClientRect()
+                    )
+                  }}
+                  onMouseLeave={() => {
+                    setPreviewAttachment(null)
+                    setPreviewAnchor(null)
+                  }}
+                >
+                  <img
+                    src={attachment.dataUrl}
+                    alt={attachment.name}
+                    className="ai-chat-attachment-preview-image"
+                  />
+                  <button
+                    type="button"
+                    className="ai-chat-attachment-remove btn btn-ghost btn-sm"
+                    onClick={() => removeAttachment(attachment.id)}
+                    aria-label={`Remove ${attachment.name}`}
+                  >
+                    <MaterialIcon type="close" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {previewAttachment && previewAnchor && (
+            <div
+              className="ai-chat-image-hover-preview"
+              style={previewStyle}
+              aria-hidden="true"
+            >
+              <img
+                src={previewAttachment.dataUrl}
+                alt={previewAttachment.name}
+                className="ai-chat-image-hover-preview-image"
+              />
+            </div>
+          )}
           <div>
             <textarea
               ref={textareaRef}
@@ -149,7 +298,20 @@ function AiChatInput({
             />
           </div>
           <div className="d-flex align-items-end justify-content-between gap-2">
-            <div />
+            <div className="d-flex align-items-center gap-2">
+              <button
+                type="button"
+                data-ol-loading="false"
+                className="d-inline-grid icon-button btn btn-ghost ai-chat-attach-btn"
+                onClick={handleChooseFiles}
+                disabled={isStreaming}
+                aria-label="Attach image"
+              >
+                <span className="button-content" aria-hidden="false">
+                  <MaterialIcon type="attach_file" />
+                </span>
+              </button>
+            </div>
             <div className="d-flex align-items-center justify-content-end gap-2 flex-grow-1">
               {isStreaming ? (
                 <button

@@ -8,6 +8,7 @@ import {
   useReducer,
   useRef,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
 import { useEditorViewContext } from '@/features/ide-react/context/editor-view-context'
 import { useEditorOpenDocContext } from '@/features/ide-react/context/editor-open-doc-context'
@@ -26,6 +27,14 @@ export type AiChatToolCall = {
   resultSummary?: string | null
 }
 
+export type AiChatAttachment = {
+  id: string
+  name: string
+  mimeType: string
+  dataUrl: string
+  size: number
+}
+
 export type AiChatEditProposal = {
   docId: string
   path: string | null
@@ -38,11 +47,19 @@ export type AiChatEditProposal = {
   error?: string | null
 }
 
+type RejectedEditProposalPayload = {
+  path: string | null
+  fromLine: number
+  toLine: number
+  rationale?: string | null
+}
+
 export type AiChatMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  attachments?: AiChatAttachment[]
   isStreaming?: boolean
   reasoning?: {
     summary: string
@@ -113,6 +130,7 @@ type AiChatAction =
       status: NonNullable<AiChatEditProposal['status']>
       error?: string | null
     }
+  | { type: 'REJECT_EDIT_PROPOSAL'; id: string }
   | { type: 'FINISH_STREAMING'; id: string }
   | { type: 'SET_ERROR'; error: string }
   | { type: 'CLEAR_MESSAGES' }
@@ -336,6 +354,14 @@ function reducer(state: AiChatState, action: AiChatAction): AiChatState {
             : msg.editProposal,
         })),
       }
+    case 'REJECT_EDIT_PROPOSAL':
+      return {
+        ...state,
+        messages: updateAssistantMessage(state.messages, action.id, msg => ({
+          ...msg,
+          editProposal: null,
+        })),
+      }
     case 'FINISH_STREAMING':
       return {
         ...state,
@@ -370,10 +396,11 @@ type AiChatContextValue = {
   messages: AiChatMessage[]
   status: AiChatState['status']
   error: string | null
-  sendMessage: (content: string) => void
+  sendMessage: (content: string, attachments?: AiChatAttachment[]) => void
   clearMessages: () => void
   stopStreaming: () => void
   applyEditProposal: (messageId: string) => Promise<void>
+  rejectEditProposal: (messageId: string) => void
 }
 
 const AiChatContext = createContext<AiChatContextValue | undefined>(undefined)
@@ -390,10 +417,18 @@ function getCsrfToken() {
   )
 }
 
+function normalizeComparableSourceText(content: string) {
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n+$/g, '')
+}
+
 function buildRequestBody(
   history: AiChatMessage[],
   userContent: string,
-  editorCtx: EditorContentInfo
+  editorCtx: EditorContentInfo,
+  options?: {
+    rejectedEditProposal?: RejectedEditProposalPayload | null
+    attachments?: AiChatAttachment[]
+  }
 ) {
   const contextParts: string[] = []
 
@@ -415,14 +450,25 @@ function buildRequestBody(
       ...history.map(m => ({
         role: m.role,
         content: m.content,
+        attachments: m.attachments ?? [],
       })),
-      { role: 'user', content: userContent },
+      ...(userContent || (options?.attachments?.length ?? 0) > 0
+        ? [
+            {
+              role: 'user' as const,
+              content: userContent,
+              attachments: options?.attachments ?? [],
+            },
+          ]
+        : []),
     ],
     context: contextParts.length > 0 ? contextParts.join('\n\n') : null,
     currentDocumentId: editorCtx.currentDocumentId,
     currentFileName: editorCtx.fileName,
+    currentDocumentContent: editorCtx.documentContent,
     selectedText: editorCtx.selectedText,
     selectionRange: editorCtx.selectionRange,
+    rejectedEditProposal: options?.rejectedEditProposal ?? null,
   }
 }
 
@@ -601,11 +647,16 @@ function handleAssistantEvent(
       typeof parsed.toolCallId === 'string' ? parsed.toolCallId : null
     if (toolCallId) {
       dispatch({
-        type: 'SET_TOOL_CALL_STATUS',
+        type: 'UPSERT_TOOL_CALL',
         id: assistantId,
-        toolCallId,
-        status: 'running',
-        args: parsed.input,
+        toolCall: {
+          id: toolCallId,
+          name:
+            typeof parsed.toolName === 'string' ? parsed.toolName : 'tool',
+          title: typeof parsed.title === 'string' ? parsed.title : undefined,
+          args: parsed.input ?? null,
+          status: 'running',
+        },
       })
     }
     return
@@ -673,6 +724,164 @@ export const AiChatProvider: FC<PropsWithChildren> = ({ children }) => {
     }
   }, [])
 
+  const sendMessageInternal = useCallback(
+    async (
+      content: string,
+      options?: {
+        visibleToConversation?: boolean
+        rejectedEditProposal?: RejectedEditProposalPayload | null
+        attachments?: AiChatAttachment[]
+      }
+    ) => {
+      const trimmedContent = content.trim()
+      const rejectedEditProposal = options?.rejectedEditProposal ?? null
+      const attachments = options?.attachments ?? []
+      if (!trimmedContent && !rejectedEditProposal && attachments.length === 0) return
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+      }
+
+      const editorCtx = getEditorContext()
+      const visibleToConversation = options?.visibleToConversation ?? true
+
+      if (visibleToConversation && trimmedContent) {
+        const userMessage: AiChatMessage = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: trimmedContent,
+          timestamp: new Date(),
+          attachments,
+          editorContext: {
+            currentDocumentId: editorCtx.currentDocumentId,
+            fileName: editorCtx.fileName,
+            selectedText: editorCtx.selectedText,
+            selectionRange: editorCtx.selectionRange,
+            hasDocumentContent: !!editorCtx.documentContent,
+          },
+        }
+        dispatch({ type: 'SEND_MESSAGE', message: userMessage })
+      } else if (visibleToConversation && attachments.length > 0) {
+        const userMessage: AiChatMessage = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: '',
+          timestamp: new Date(),
+          attachments,
+          editorContext: {
+            currentDocumentId: editorCtx.currentDocumentId,
+            fileName: editorCtx.fileName,
+            selectedText: editorCtx.selectedText,
+            selectionRange: editorCtx.selectionRange,
+            hasDocumentContent: !!editorCtx.documentContent,
+          },
+        }
+        dispatch({ type: 'SEND_MESSAGE', message: userMessage })
+      }
+
+      const assistantId = `assistant-${Date.now()}`
+      dispatch({ type: 'START_STREAMING', id: assistantId })
+
+      const abortController = new AbortController()
+      abortControllerRef.current = abortController
+
+      try {
+        const projectId = getProjectId()
+        if (!projectId) {
+          throw new Error('Missing project id')
+        }
+        const body = buildRequestBody(state.messages, trimmedContent, editorCtx, {
+          rejectedEditProposal,
+          attachments,
+        })
+
+        const response = await fetch(`/api/project/${projectId}/ai-chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Csrf-Token': getCsrfToken(),
+          },
+          body: JSON.stringify(body),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const events = buffer.split('\n\n')
+          buffer = events.pop() || ''
+
+          for (const event of events) {
+            const data = parseSseEventBlock(event)
+            if (!data) continue
+            if (data === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed && typeof parsed === 'object') {
+                const eventType =
+                  typeof parsed.type === 'string' ? parsed.type : null
+                if (eventType === 'tool-input-start') {
+                  flushSync(() => {
+                    handleAssistantEvent(
+                      assistantId,
+                      parsed as Record<string, unknown>,
+                      dispatch
+                    )
+                  })
+                } else {
+                  handleAssistantEvent(
+                    assistantId,
+                    parsed as Record<string, unknown>,
+                    dispatch
+                  )
+                }
+              }
+            } catch {
+              if (data.trim()) {
+                dispatch({
+                  type: 'APPEND_CHUNK',
+                  id: assistantId,
+                  chunk: data,
+                })
+              }
+            }
+          }
+        }
+
+        dispatch({ type: 'FINISH_STREAMING', id: assistantId })
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          dispatch({ type: 'FINISH_STREAMING', id: assistantId })
+        } else {
+          dispatch({
+            type: 'SET_ERROR',
+            error:
+              err instanceof Error ? err.message : 'Failed to get AI response',
+          })
+        }
+      } finally {
+        abortControllerRef.current = null
+      }
+    },
+    [getEditorContext, state.messages]
+  )
+
   const applyEditProposal = useCallback(
     async (messageId: string) => {
       const projectId = getProjectId()
@@ -698,9 +907,15 @@ export const AiChatProvider: FC<PropsWithChildren> = ({ children }) => {
         ) {
           const fromLine = view.state.doc.line(proposal.fromLine)
           const toLine = view.state.doc.line(proposal.toLine)
-          const currentContent = view.state.sliceDoc(fromLine.from, toLine.to)
+          const currentContent = Array.from(
+            { length: proposal.toLine - proposal.fromLine + 1 },
+            (_, index) => view.state.doc.line(proposal.fromLine + index).text
+          ).join('\n')
 
-          if (currentContent !== proposal.existingContent) {
+          if (
+            normalizeComparableSourceText(currentContent) !==
+            normalizeComparableSourceText(proposal.existingContent)
+          ) {
             throw new Error(
               'Document content has changed. Please ask AI to regenerate the patch.'
             )
@@ -763,111 +978,25 @@ export const AiChatProvider: FC<PropsWithChildren> = ({ children }) => {
   )
 
   const sendMessage = useCallback(
-    async (content: string) => {
-      if (!content.trim()) return
-
-      const editorCtx = getEditorContext()
-
-      const userMessage: AiChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: content.trim(),
-        timestamp: new Date(),
-        editorContext: {
-          currentDocumentId: editorCtx.currentDocumentId,
-          fileName: editorCtx.fileName,
-          selectedText: editorCtx.selectedText,
-          selectionRange: editorCtx.selectionRange,
-          hasDocumentContent: !!editorCtx.documentContent,
-        },
-      }
-      dispatch({ type: 'SEND_MESSAGE', message: userMessage })
-
-      const assistantId = `assistant-${Date.now()}`
-      dispatch({ type: 'START_STREAMING', id: assistantId })
-
-      const abortController = new AbortController()
-      abortControllerRef.current = abortController
-
-      try {
-        const projectId = getProjectId()
-        if (!projectId) {
-          throw new Error('Missing project id')
-        }
-        const body = buildRequestBody(state.messages, content.trim(), editorCtx)
-
-        const response = await fetch(`/api/project/${projectId}/ai-chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Csrf-Token': getCsrfToken(),
-          },
-          body: JSON.stringify(body),
-          signal: abortController.signal,
-        })
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error('No response body')
-        }
-
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const events = buffer.split('\n\n')
-          buffer = events.pop() || ''
-
-          for (const event of events) {
-            const data = parseSseEventBlock(event)
-            if (!data) continue
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed && typeof parsed === 'object') {
-                handleAssistantEvent(
-                  assistantId,
-                  parsed as Record<string, unknown>,
-                  dispatch
-                )
-              }
-            } catch {
-              if (data.trim()) {
-                dispatch({
-                  type: 'APPEND_CHUNK',
-                  id: assistantId,
-                  chunk: data,
-                })
-              }
-            }
-          }
-        }
-
-        dispatch({ type: 'FINISH_STREAMING', id: assistantId })
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') {
-          dispatch({ type: 'FINISH_STREAMING', id: assistantId })
-        } else {
-          dispatch({
-            type: 'SET_ERROR',
-            error:
-              err instanceof Error ? err.message : 'Failed to get AI response',
-          })
-        }
-      } finally {
-        abortControllerRef.current = null
-      }
+    async (content: string, attachments?: AiChatAttachment[]) => {
+      await sendMessageInternal(content, {
+        visibleToConversation: true,
+        attachments: attachments ?? [],
+      })
     },
-    [getEditorContext, state.messages]
+    [sendMessageInternal]
+  )
+
+  const rejectEditProposal = useCallback(
+    (messageId: string) => {
+      stopStreaming()
+
+      dispatch({
+        type: 'REJECT_EDIT_PROPOSAL',
+        id: messageId,
+      })
+    },
+    [stopStreaming]
   )
 
   const clearMessages = useCallback(() => {
@@ -885,6 +1014,7 @@ export const AiChatProvider: FC<PropsWithChildren> = ({ children }) => {
         clearMessages,
         stopStreaming,
         applyEditProposal,
+        rejectEditProposal,
       }}
     >
       {children}
