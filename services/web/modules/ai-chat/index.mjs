@@ -1,4 +1,5 @@
 import AiChatRouter from './app/src/AiChatRouter.mjs'
+import McpRouter from './app/src/McpRouter.mjs'
 
 /**
  * @import { WebModule } from "../../types/web-module"
@@ -6,7 +7,12 @@ import AiChatRouter from './app/src/AiChatRouter.mjs'
 
 /** @type {WebModule} */
 const AiChatModule = {
-  router: AiChatRouter,
+  router: {
+    apply(webRouter, privateApiRouter, publicApiRouter) {
+      AiChatRouter.apply(webRouter, privateApiRouter, publicApiRouter)
+      McpRouter.apply(webRouter, privateApiRouter, publicApiRouter)
+    },
+  },
 }
 
 export default AiChatModule
